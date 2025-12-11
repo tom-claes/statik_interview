@@ -29,7 +29,56 @@ class ReservationController extends Controller
      */
     public function store(StoreReservationRequest $request)
     {
-        //
+        // Validate the request data
+        $data = $request->validated();
+
+        // Retrieve amount of existing reservations for the selected date and timeslot
+        $amount_of_existing_reservations = Reservation::where('reservation_date', $data['reservation_date'])
+            ->where('reservation_timeslot', $data['reservation_timeslot'])
+            ->count();
+        
+
+        // Determine how many new reservations are being submitted
+        $newReservations = 0;
+        for ($i = 1; $i <= 3; $i++) {
+            if (!empty($data["firstname{$i}"]) && !empty($data["lastname{$i}"])) {
+                $newReservations++;
+            }
+        }
+
+        // Check if adding the new reservations would exceed the limit of 200
+        if($amount_of_existing_reservations + $newReservations > 200) {
+            return redirect()->back()->withInput()->withErrors(['main_error' => 'Het geselecteerde tijdslot is volgeboekt. Kies een ander tijdslot of een andere datum.']);
+        }
+
+        try{
+            // Begin db transaction
+            \DB::beginTransaction();
+            // Create reservations for each visitor
+            for ($i = 1; $i <= 3; $i++) {
+                if (!empty($data["firstname{$i}"]) && !empty($data["lastname{$i}"])) {
+                    Reservation::create([
+                        'firstname' => ucwords(strtolower($data["firstname{$i}"])),
+                        'lastname' => ucwords(strtolower($data["lastname{$i}"])),
+                        'reservation_date' => $data['reservation_date'],
+                        'reservation_timeslot' => $data['reservation_timeslot'],
+                        'subscription_number' => $data["subscription_number{$i}"] ?? null,
+                    ]);
+                }
+            }
+            // Commit transaction
+            \DB::commit();
+        } catch (\Exception $e) {
+            // Log the error
+            \Log::error('Error creating store', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return redirect()->back()->withInput()->withErrors(['main_error' => 'Er is een fout opgetreden bij het opslaan van de reservering. Probeer het later opnieuw.']);
+        }
+
+        return view('reservation_success', ['reservationData' => $data]);
     }
 
     /**
